@@ -1,0 +1,216 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(ownerId) {
+      return isSignedIn() && request.auth.uid == ownerId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isGroupMember(groupId) {
+      return isSignedIn() && groupId != null && groupId != '' && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.get('members', []);
+    }
+
+    function isGroupAdmin(groupId) {
+      let groupData = get(/databases/$(database)/documents/groups/$(groupId)).data;
+      return isSignedIn() && groupId != null && groupId != '' && (
+        groupData.creatorUid == request.auth.uid || 
+        request.auth.uid in groupData.get('admins', [])
+      );
+    }
+
+    // --- Validation Blueprints ---
+
+    function isValidTask(data, isCreate) {
+      return data.keys().hasAll(['title', 'date', 'startTime', 'endTime', 'color', 'ownerUid'])
+        && data.keys().size() >= 6 && data.keys().size() <= 32
+        && data.title is string && data.title.size() <= 100
+        && data.date is string && data.date.size() == 10
+        && data.startTime is string && data.startTime.size() == 5
+        && data.endTime is string && data.endTime.size() == 5
+        && data.color is string && data.color.size() <= 20
+        // OwnerUid check is bypassable for group tasks if group admin is creating/editing
+        && (data.ownerUid == request.auth.uid || (data.get('groupId', '') != '' && isGroupAdmin(data.groupId)))
+        && data.get('type', 'mission') in ['mission', 'assignment']
+        && data.get('category', 'Individu') in ['Individu', 'Kelompok', 'Lainnya']
+        && data.get('status', 'Belum Dikumpul') in ['Belum Dikumpul', 'Dalam Proses', 'Sudah Dikumpul']
+        && data.get('taskLink', '') is string && data.get('taskLink', '').size() <= 1000
+        && data.get('submissionLink', '') is string && data.get('submissionLink', '').size() <= 1000
+        && data.get('myNote', '') is string && data.get('myNote', '').size() <= 2000
+        && data.get('creatorName', '') is string && data.get('creatorName', '').size() <= 100
+        && data.get('recurrence', 'none') in ['none', 'weekly', 'monthly']
+        && (data.get('recurrenceId', '') == null || data.get('recurrenceId', '') is string)
+        && (data.get('collaborators', []) is list)
+        && (data.get('groupId', '') == '' || isValidId(data.groupId))
+        && (isCreate ? data.get('createdAt', request.time) == request.time : data.createdAt == existing().createdAt)
+        && (data.get('updatedAt', request.time) == request.time);
+    }
+
+    function isValidSharingRequest(data) {
+      return data.keys().hasAll(['senderUid', 'recipientEmail', 'status', 'taskData', 'createdAt'])
+        && data.senderUid == request.auth.uid
+        && data.recipientEmail is string
+        && data.status in ['pending', 'accepted', 'declined']
+        && data.taskData is map;
+    }
+
+    function isValidFriend(data) {
+      return data.keys().hasAll(['email', 'customName', 'ownerUid', 'createdAt'])
+        && data.email is string && data.email.size() <= 200
+        && data.customName is string && data.customName.size() <= 50
+        && data.ownerUid == request.auth.uid;
+    }
+
+    function isValidGroup(data) {
+      return data.keys().hasAll(['id', 'name', 'code', 'creatorUid', 'members', 'createdAt'])
+        && data.keys().size() >= 6 && data.keys().size() <= 20
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 100
+        && data.code is string && data.code.size() >= 4 && data.code.size() <= 12
+        && (data.creatorUid is string)
+        && data.members is list && data.members.size() > 0 
+        && (data.get('admins', []) is list)
+        && (data.get('schedule', []) is list)
+        && (data.get('scheduleTitle', '') is string)
+        && (data.get('updatedAt', request.time) is timestamp);
+    }
+
+    function isValidUserTaskState(data) {
+      return data.keys().hasAll(['taskId', 'userId', 'status'])
+        && data.taskId is string && data.userId == request.auth.uid
+        && data.status in ['Belum Dikumpul', 'Dalam Proses', 'Sudah Dikumpul']
+        && (data.get('myNote', '') is string && data.get('myNote', '').size() <= 2000);
+    }
+
+    // --- Public Test Doc ---
+    match /test/connection {
+      allow get: if true;
+    }
+
+    // --- Collections ---
+
+    match /users/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn() && (isOwner(userId) || resource.data.email != null); // Allow finding users by email for friends
+      allow write: if isOwner(userId);
+    }
+
+    match /users/{userId}/friends/{friendId} {
+      allow list, get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidFriend(incoming()) && isValidId(friendId);
+      allow update: if isOwner(userId) && isValidFriend(incoming()) && incoming().email == existing().email;
+      allow delete: if isOwner(userId);
+    }
+
+    match /groups/{groupId} {
+      // Enforce query security for list
+      allow list: if isSignedIn() && (
+        request.auth.uid in resource.data.members || 
+        resource.data.code != null
+      );
+      allow get: if isSignedIn() && (
+        request.auth.uid in resource.data.members || 
+        resource.data.creatorUid == request.auth.uid
+      );
+      allow create: if isSignedIn() && isValidGroup(incoming()) && isValidId(groupId) && incoming().id == groupId && incoming().creatorUid == request.auth.uid;
+      allow update: if isSignedIn() && (
+        // Action: Join or Leave
+        (incoming().diff(existing()).affectedKeys().hasOnly(['members', 'updatedAt'])
+         && (
+           // Join
+           (request.auth.uid in incoming().members
+            && incoming().members.size() == existing().members.size() + 1
+            && ! (request.auth.uid in existing().members))
+           ||
+           // Leave
+           (! (request.auth.uid in incoming().members)
+            && incoming().members.size() == existing().members.size() - 1
+            && (request.auth.uid in existing().members))
+         )) ||
+        // Action: Admin updates (Edit Name, Schedule, Admins, etc.)
+        (isGroupAdmin(groupId) && isValidGroup(incoming()) && incoming().id == existing().id && incoming().creatorUid == existing().creatorUid)
+      );
+      allow delete: if isSignedIn() && existing().creatorUid == request.auth.uid;
+    }
+
+    match /tasks/{taskId} {
+      allow list: if isSignedIn() && (
+        resource.data.ownerUid == request.auth.uid || 
+        request.auth.uid in resource.data.get('collaborators', []) ||
+        (resource.data.get('groupId', '') != '' && isGroupMember(resource.data.groupId))
+      );
+      allow get: if isSignedIn() && (
+        resource.data.ownerUid == request.auth.uid || 
+        request.auth.uid in resource.data.get('collaborators', []) ||
+        (resource.data.get('groupId', '') != '' && isGroupMember(resource.data.groupId))
+      );
+      allow create: if isSignedIn() && isValidTask(incoming(), true) && isValidId(taskId) && (
+        incoming().get('groupId', '') == '' || isGroupMember(incoming().groupId)
+      );
+      allow update: if isSignedIn() && (
+        // Action 1: Owner or Group Admin updates content
+        ((isOwner(existing().ownerUid) || (existing().get('groupId', '') != '' && isGroupAdmin(existing().groupId))) 
+         && isValidTask(incoming(), false) 
+         && incoming().ownerUid == existing().ownerUid 
+         && (incoming().get('groupId', '') == '' || isGroupMember(incoming().groupId))
+        ) ||
+        // Action 2: Collaborator joins (Recipient adds self)
+        (incoming().diff(existing()).affectedKeys().hasOnly(['collaborators']) 
+         && incoming().get('collaborators', []).hasAll(existing().get('collaborators', []))
+         && request.auth.uid in incoming().collaborators
+         && incoming().collaborators.size() == (existing().keys().hasAll(['collaborators']) ? existing().collaborators.size() : 0) + 1) ||
+        // Action 3: Collaborator updates status (For shared collaboration tasks)
+        (request.auth.uid in existing().get('collaborators', []) 
+         && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) 
+         && incoming().status in ['Belum Dikumpul', 'Dalam Proses', 'Sudah Dikumpul'])
+      );
+      allow delete: if isSignedIn() && (isOwner(existing().ownerUid) || (existing().get('groupId', '') != '' && isGroupAdmin(existing().groupId)));
+    }
+
+    match /userTaskStates/{stateId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidUserTaskState(incoming()) && stateId == request.auth.uid + "_" + incoming().taskId;
+      allow update: if isSignedIn() && isOwner(existing().userId) && isValidUserTaskState(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && isOwner(existing().userId);
+    }
+
+    match /sharingRequests/{requestId} {
+      // Split list rules to explicitly match query patterns
+      allow list: if isSignedIn() && (
+        resource.data.senderUid == request.auth.uid || 
+        resource.data.recipientEmail == request.auth.token.email
+      );
+      allow get: if isSignedIn() && (
+        resource.data.senderUid == request.auth.uid || 
+        resource.data.recipientEmail == request.auth.token.email
+      );
+      allow create: if isSignedIn() && isValidSharingRequest(incoming()) && isValidId(requestId);
+      allow update: if isSignedIn() 
+        && resource.data.recipientEmail == request.auth.token.email 
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+        && incoming().status in ['accepted', 'declined'];
+      allow delete: if isSignedIn() && (resource.data.senderUid == request.auth.uid || resource.data.recipientEmail == request.auth.token.email);
+    }
+  }
+}

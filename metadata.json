@@ -1,0 +1,8 @@
+{
+  "name": "Me Times - Project 2.1",
+  "description": "A unique 24-hour task management app with a sliding day/night schedule view and visual time blocking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

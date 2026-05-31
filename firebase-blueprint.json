@@ -1,0 +1,130 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Public user information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "groupIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["uid", "email"]
+    },
+    "Task": {
+      "title": "Task System",
+      "description": "Daily missions or assignments for the user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "date": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "color": { "type": "string" },
+        "type": { "type": "string", "enum": ["mission", "assignment"] },
+        "category": { "type": "string", "enum": ["Individu", "Kelompok", "Lainnya"] },
+        "taskLink": { "type": "string" },
+        "submissionLink": { "type": "string" },
+        "status": { "type": "string", "enum": ["Belum Dikumpul", "Dalam Proses", "Sudah Dikumpul"] },
+        "myNote": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "ownerEmail": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "collaborators": { "type": "array", "items": { "type": "string" } },
+        "groupId": { "type": "string" },
+        "recurrence": { "type": "string" },
+        "recurrenceId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "date", "startTime", "endTime", "color", "ownerUid"]
+    },
+    "SharingRequest": {
+      "title": "Mission Sharing Request",
+      "description": "Invitation to collaborate on a mission",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "taskId": { "type": "string" },
+        "senderUid": { "type": "string" },
+        "senderName": { "type": "string" },
+        "recipientEmail": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"] },
+        "taskData": { "type": "object" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "taskId", "senderUid", "recipientEmail", "status", "taskData", "createdAt"]
+    },
+    "Friend": {
+      "title": "Friend Connection",
+      "description": "Stored contacts for sharing missions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "customName": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "email", "customName", "ownerUid", "createdAt"]
+    },
+    "Group": {
+      "title": "Strategic Group",
+      "description": "Collaborative group for sharing collective telemetry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "scheduleTitle": { "type": "string" },
+        "creatorUid": { "type": "string" },
+        "members": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "code", "creatorUid", "members", "createdAt"]
+    },
+    "UserTaskState": {
+      "title": "Personal Task Progress",
+      "description": "Individual member's status and notes for a shared or group task",
+      "type": "object",
+      "properties": {
+        "taskId": { "type": "string" },
+        "userId": { "type": "string" },
+        "status": { "type": "string", "enum": ["Belum Dikumpul", "Dalam Proses", "Sudah Dikumpul"] },
+        "myNote": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["taskId", "userId", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/users/{userId}/friends/{friendId}": {
+      "schema": "Friend",
+      "description": "User's personal friends list"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Mission tasks"
+    },
+    "/sharingRequests/{requestId}": {
+      "schema": "SharingRequest",
+      "description": "Pending sharing invitations"
+    },
+    "/groups/{groupId}": {
+      "schema": "Group",
+      "description": "Tactical groups for shared missions"
+    },
+    "/userTaskStates/{stateId}": {
+      "schema": "UserTaskState",
+      "description": "Personal progress for tasks"
+    }
+  }
+}
