@@ -109,6 +109,18 @@ const calculateDuration = (start: string, end: string) => {
   return `${h}:${String(m).padStart(2, '0')}`;
 };
 
+const isTimeNight = (startTime: string) => {
+  if (!startTime) return false;
+  const parts = startTime.split(':');
+  if (parts.length >= 1) {
+    const hours = parseInt(parts[0], 10);
+    if (!isNaN(hours)) {
+      return hours >= 18 || hours < 6;
+    }
+  }
+  return false;
+};
+
 const getTimeColor = (time: string) => {
   return '#ffffff'; // Solid white card backgrounds for clean high-contrast styling
 };
@@ -684,7 +696,7 @@ export default function App() {
         groupIds: arrayUnion(groupRef.id)
       });
       setGroupName('');
-      alert(`Visioner squadron established! Frequency: ${code}`);
+      alert(`Group established! Frequency: ${code}`);
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'groups');
     }
@@ -720,7 +732,7 @@ export default function App() {
     
     // Only owner can demote admins
     if (group.creatorUid !== user.uid) {
-      alert("Only the Visioner Lead (Owner) can revoke administrative clearance.");
+      alert("Only the Group Leader (Owner) can revoke administrative clearance.");
       return;
     }
 
@@ -882,7 +894,7 @@ export default function App() {
     e.preventDefault();
     
     if (timeToMinutes(newTask.endTime) < timeToMinutes(newTask.startTime)) {
-      alert("Mission arrival time cannot be before launch time.");
+      alert("Schedule arrival time cannot be before launch time.");
       return;
     }
 
@@ -994,7 +1006,7 @@ export default function App() {
         }
         
         if (newTask.tagEmail.trim()) {
-          alert(`Missions shared with ${newTask.tagEmail}`);
+          alert(`Schedules shared with ${newTask.tagEmail}`);
         }
       }
       closeForm();
@@ -1486,7 +1498,7 @@ export default function App() {
                         <div className="p-2 rounded-lg bg-zinc-50 text-zinc-500 group-hover:bg-black group-hover:text-white transition-colors">
                           <CalendarIcon className="w-4 h-4" />
                         </div>
-                        <span className="text-sm font-bold">All Missions</span>
+                        <span className="text-sm font-bold">All Schedules</span>
                       </button>
 
                       <button 
@@ -1565,7 +1577,9 @@ export default function App() {
                     const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
                     const currentDayIndo = daysIndo[selectedDate.getDay()];
                     
-                    const dayTasks = tasks.filter(t => t.type === 'mission' && t.date === formatDate(selectedDate) && !hiddenTaskIds.has(t.id));
+                    const dayTasks = tasks
+                      .filter(t => t.type === 'mission' && t.date === formatDate(selectedDate) && !hiddenTaskIds.has(t.id))
+                      .map(t => isTimeNight(t.startTime) ? { ...t, color: '#000000' } : t);
                     
                     const daySchedules = groups.flatMap(group => 
                       (group.schedule || [])
@@ -1574,7 +1588,7 @@ export default function App() {
                           ...item,
                           id: item.id || `schedule-${group.id}-${item.subject}-${item.startTime}`,
                           title: item.subject,
-                          color: '#678850', // Fixed matcha for schedule items
+                          color: isTimeNight(item.startTime) ? '#000000' : '#678850', // Fixed matcha for schedule items, black if night
                           isSchedule: true
                         }))
                         .filter(item => !hiddenTaskIds.has(item.id))
@@ -1842,7 +1856,9 @@ export default function App() {
                     const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
                     const dateDayIndo = daysIndo[date.getDay()];
                     
-                    const dayTasks = tasks.filter(t => t.date === dateKey && !hiddenTaskIds.has(t.id));
+                    const dayTasks = tasks
+                      .filter(t => t.date === dateKey && !hiddenTaskIds.has(t.id))
+                      .map(t => isTimeNight(t.startTime) ? { ...t, color: '#000000' } : t);
                     const daySchedules = groups.flatMap(group => 
                       (group.schedule || [])
                         .filter(item => {
@@ -1853,7 +1869,7 @@ export default function App() {
                     
                     const combinedItems = [
                       ...dayTasks,
-                      ...daySchedules.map(s => ({ ...s, color: '#678850' }))
+                      ...daySchedules.map(s => ({ ...s, color: isTimeNight(s.startTime) ? '#000000' : '#678850' }))
                     ];
                     
                     // Calculate total duration to scale the indicator bars
@@ -1923,13 +1939,13 @@ export default function App() {
               }`}
             >
               <Plus className="w-5 h-5 stroke-[2.5]" />
-              ADD MISSION
+              ADD SCHEDULE
             </button>
           </div>
 
           <div className="flex-1 space-y-4 pr-2 custom-scrollbar">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xs font-display font-extrabold uppercase tracking-widest text-[#2d3a22]">Chronological View</h3>
+              <h3 className="text-xs font-display font-extrabold uppercase tracking-widest text-[#2d3a22]">Schedule List</h3>
               <button 
                 onClick={() => setShowChronologicalView(!showChronologicalView)}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white hover:bg-zinc-50 text-[10px] font-display font-bold uppercase tracking-widest text-zinc-805 hover:text-zinc-950 transition-all border border-zinc-200/50 shadow-sm"
@@ -1954,7 +1970,9 @@ export default function App() {
                     const daysIndo = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
                     const currentDayIndo = daysIndo[selectedDate.getDay()];
                     
-                    const dayMissions = tasks.filter(t => t.type === 'mission' && t.date === formatDate(selectedDate));
+                    const dayMissions = tasks
+                      .filter(t => t.type === 'mission' && t.date === formatDate(selectedDate))
+                      .map(t => isTimeNight(t.startTime) ? { ...t, color: '#000000' } : t);
                     
                     const daySchedules = groups.flatMap(group => 
                       (group.schedule || [])
@@ -1965,7 +1983,7 @@ export default function App() {
                           isSchedule: true,
                           groupName: group.name,
                           title: item.subject,
-                          color: '#678850', // Fixed matcha for schedule items
+                          color: isTimeNight(item.startTime) ? '#000000' : '#678850', // Fixed matcha for schedule items, black if night
                           type: 'mission' as const // For styling purposes
                         }))
                     );
@@ -1978,7 +1996,7 @@ export default function App() {
                     if (chronologicalItems.length === 0) {
                       return (
                         <div className="p-12 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-4 text-center border-white/40 text-[#2c3922] bg-white/55">
-                          <p className="text-sm font-black uppercase tracking-wider">No missions or schedule for this date.</p>
+                          <p className="text-sm font-black uppercase tracking-wider">No schedule for this date.</p>
                         </div>
                       );
                     }
@@ -1986,6 +2004,7 @@ export default function App() {
                     return chronologicalItems.map(item => {
                       const isSchedule = 'isSchedule' in item;
                       const isHidden = hiddenTaskIds.has(item.id);
+                      const isNightItem = isTimeNight(item.startTime);
                       
                       return (
                         <motion.div 
@@ -1996,14 +2015,16 @@ export default function App() {
                           className={`p-5 rounded-2xl border shadow-3d-float transition-all group relative overflow-hidden cursor-pointer backdrop-blur-md ${
                             isHidden 
                               ? 'grayscale opacity-60 bg-zinc-100/50 border-zinc-200' 
-                              : isNight 
-                                ? 'border-zinc-800/80 hover:border-zinc-700/60 shadow-3d-dark' 
-                                : 'border-zinc-100/50 hover:border-zinc-200 shadow-sm'
+                              : isNightItem
+                                ? 'border-zinc-800/80 shadow-3d-dark hover:border-zinc-700/60'
+                                : isNight 
+                                  ? 'border-zinc-800/80 hover:border-zinc-700/60 shadow-3d-dark' 
+                                  : 'border-zinc-100/50 hover:border-zinc-200 shadow-sm'
                           }`}
                           style={{ 
-                            background: isHidden ? undefined : (isSchedule ? (isNight ? 'rgba(24, 24, 27, 0.35)' : 'rgba(255, 255, 255, 0.22)') : getTaskBackground(item as any)),
-                            color: isHidden ? '#71717a' : (isSchedule ? (isNight ? '#cbd5e1' : '#18181b') : getTaskTextColor(item as any, isNight)),
-                            borderColor: isHidden ? '#e4e4e7' : (isSchedule ? (isNight ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)') : (getTaskTextColor(item as any, isNight) === '#ffffff' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'))
+                            background: isHidden ? undefined : (isNightItem ? '#000000' : (isSchedule ? (isNight ? 'rgba(24, 24, 27, 0.35)' : 'rgba(255, 255, 255, 0.22)') : getTaskBackground(item as any))),
+                            color: isHidden ? '#71717a' : (isNightItem ? '#ffffff' : (isSchedule ? (isNight ? '#cbd5e1' : '#18181b') : getTaskTextColor(item as any, isNight))),
+                            borderColor: isHidden ? '#e4e4e7' : (isNightItem ? 'rgba(255, 255, 255, 0.15)' : (isSchedule ? (isNight ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)') : (getTaskTextColor(item as any, isNight) === '#ffffff' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)')))
                           }}
                           onClick={() => {
                             setSelectedTaskId(item.id);
@@ -2015,7 +2036,7 @@ export default function App() {
                               <div className="flex items-center gap-2 mb-1.5">
                                 <p className={`font-display font-extrabold text-base truncate uppercase tracking-tight ${isHidden ? 'line-through opacity-50' : ''}`}>{item.title}</p>
                                 {isSchedule ? (
-                                  <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-600 text-[8px] font-display font-black uppercase tracking-widest whitespace-nowrap">
+                                  <span className={`px-1.5 py-0.5 rounded text-[8px] font-display font-black uppercase tracking-widest whitespace-nowrap ${isNightItem ? 'bg-zinc-800 text-zinc-300' : 'bg-zinc-100 text-zinc-600'}`}>
                                     Jadwal {item.modality}
                                   </span>
                                 ) : (item as any).ownerUid !== user?.uid && (
@@ -2089,7 +2110,7 @@ export default function App() {
               <div className="flex items-center justify-between mb-4">
                 <h3 className={`text-xs font-display font-extrabold uppercase tracking-widest ${isNight ? 'text-[#2d3a22]' : 'text-white'}`}>Assignments Due Today</h3>
                 <div className="px-3 py-1 rounded-full bg-amber-500 text-white text-[10px] font-black uppercase tracking-widest">
-                  {tasks.filter(t => t.type === 'assignment' && t.date === formatDate(selectedDate)).length} Files
+                  {tasks.filter(t => t.type === 'assignment' && t.date === formatDate(selectedDate)).length} List
                 </div>
               </div>
 
@@ -2189,7 +2210,7 @@ export default function App() {
                         {tasks.filter(t => t.type === 'assignment' && t.status === 'Sudah Dikumpul').length}
                       </div>
                       <div>
-                        <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-emerald-500 leading-tight">Mission Accomplished</p>
+                        <p className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-emerald-500 leading-tight">Schedule Accomplished</p>
                         <p className="text-[7px] sm:text-[8px] font-bold text-emerald-400 uppercase tracking-tight">Successfully Submitted</p>
                       </div>
                     </div>
@@ -2371,15 +2392,15 @@ export default function App() {
           <div className="flex-1 flex flex-col p-8 sm:p-12 overflow-y-auto no-scrollbar bg-transparent">
             <div className="max-w-4xl mx-auto w-full space-y-12 pb-32">
               <div className="flex flex-col gap-12">
-                {/* Visioner Hub / Social Center */}
+                {/* Group Hub / Center */}
                 <div className="space-y-12">
                   {!viewingGroupId ? (
                     <>
                       {/* Hub Dashboard View */}
                       <div className="space-y-8">
                         <header className="flex flex-col gap-2">
-                            <h3 className="text-[14px] font-black uppercase tracking-[0.3em] text-[#1a2e05] italic">Visioner Command Hub</h3>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-[#2d3a22]/70">Deploy strategically across coordinated squadron networks</p>
+                            <h3 className="text-[14px] font-black uppercase tracking-[0.3em] text-[#1a2e05] italic">Group Command Hub</h3>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-[#2d3a22]/70">Coordinated communication and scheduling across groups</p>
                         </header>
 
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -2390,14 +2411,14 @@ export default function App() {
                                 <Zap className="w-6 h-6 fill-current" />
                               </div>
                               <div>
-                                <h4 className="text-lg font-black uppercase tracking-tight text-[#1a2e05] italic">Initialize Interface</h4>
-                                <p className="text-[8px] font-black uppercase tracking-widest text-matcha-700/60">Secure entry to squadron networks</p>
+                                <h4 className="text-lg font-black uppercase tracking-tight text-[#1a2e05] italic">Initialize Group</h4>
+                                <p className="text-[8px] font-black uppercase tracking-widest text-matcha-700/60">Secure entry to group networks</p>
                               </div>
                             </div>
                             
                             <div className="space-y-6">
                               <form onSubmit={createGroup} className="flex flex-col gap-3">
-                                <p className="text-[8px] font-black uppercase tracking-widest text-matcha-800 ml-2">Designate New Squadron</p>
+                                <p className="text-[8px] font-black uppercase tracking-widest text-matcha-800 ml-2">Designate New Group</p>
                                 <div className="relative group">
                                   <input 
                                     type="text" 
@@ -2436,17 +2457,17 @@ export default function App() {
                             </div>
                           </div>
 
-                          {/* Right Panel: Squadron List */}
+                          {/* Right Panel: Group List */}
                           <div className="lg:col-span-7 space-y-6">
                             <div className="flex items-center justify-between px-2">
-                              <h4 className="text-[10px] font-black uppercase tracking-widest text-[#1a2e05] opacity-80">Available Squadrons</h4>
+                              <h4 className="text-[10px] font-black uppercase tracking-widest text-[#1a2e05] opacity-80">Available Groups</h4>
                               <span className="text-[9px] font-mono font-black text-[#1a2e05] opacity-70 bg-white/40 px-3 py-1 rounded-full">{groups.length} DETECTED</span>
                             </div>
                             <div className="grid grid-cols-1 gap-5">
                               {groups.length === 0 ? (
                                 <div className="p-8 sm:p-20 bg-white/40 border-2 border-dashed border-white/30 rounded-[32px] sm:rounded-[48px] text-center space-y-4 backdrop-blur-md">
                                   <Users className="w-12 h-12 mx-auto opacity-10 text-zinc-900" />
-                                  <p className="text-[11px] font-black uppercase tracking-widest text-zinc-500 italic">No active tactical links established</p>
+                                  <p className="text-[11px] font-black uppercase tracking-widest text-zinc-500 italic">No active groups established</p>
                                 </div>
                               ) : (
                                 groups.map(g => (
@@ -2464,7 +2485,7 @@ export default function App() {
                                         <h5 className="text-[13px] font-black uppercase tracking-tight text-zinc-900 group-hover:text-matcha-600 transition-colors truncate">{g.name}</h5>
                                         <div className="flex items-center gap-2 sm:gap-3 mt-1 flex-wrap">
                                           <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">
-                                            {(g.members || []).length} Operators
+                                            {(g.members || []).length} Members
                                           </span>
                                           <div className="w-1 h-1 rounded-full bg-zinc-200" />
                                           <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase">{g.id.slice(-6)}</span>
@@ -2486,7 +2507,7 @@ export default function App() {
                       </div>
                     </>
                   ) : (
-                    /* Detailed Visioner Page (Replaces Social Hub View) */
+                    /* Detailed Group Page (Replaces Social Hub View) */
                     <motion.div
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -2496,28 +2517,28 @@ export default function App() {
                       {/* Header Section */}
                       <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
                         <div className="space-y-6">
-                          <button 
-                            onClick={() => setViewingGroupId(null)}
-                            className="flex items-center gap-3 group text-[#1a2e05] opacity-80 hover:opacity-100 hover:text-black transition-colors"
-                          >
-                            <ChevronLeft className="w-6 h-6 group-hover:-translate-x-2 transition-transform" />
-                            <span className="text-[11px] font-black uppercase tracking-[0.3em]">Sector Hub Exit</span>
-                          </button>
-                          <div className="flex items-center gap-8">
-                            <div className="w-20 h-20 rounded-[32px] bg-gradient-to-tr from-matcha-900 via-matcha-700 to-matcha-600 border-4 border-white flex items-center justify-center text-white text-3xl font-black italic shadow-2xl shadow-matcha-900/10">
-                              {groups.find(g => g.id === viewingGroupId)?.name[0].toUpperCase()}
-                            </div>
-                            <div>
-                                <h2 className="text-5xl font-black uppercase italic tracking-tighter leading-none text-zinc-900">
-                                  {groups.find(g => g.id === viewingGroupId)?.name}
-                                </h2>
-                                <div className="flex items-center gap-3 mt-3">
-                                  <div className="px-3 py-1 bg-amber-50 border border-amber-200 rounded-full text-[9px] font-black uppercase tracking-widest text-amber-600">
-                                    SQUADRON ACTIVE
-                                  </div>
-                                  <div className="px-3 py-1 bg-white/50 border border-white/40 rounded-full text-[9px] font-mono font-bold text-matcha-900">
-                                    FREQ: {groups.find(g => g.id === viewingGroupId)?.code}
-                                  </div>
+                           <button 
+                             onClick={() => setViewingGroupId(null)}
+                             className="flex items-center gap-3 group text-[#1a2e05] opacity-80 hover:opacity-100 hover:text-black transition-colors"
+                           >
+                             <ChevronLeft className="w-6 h-6 group-hover:-translate-x-2 transition-transform" />
+                             <span className="text-[11px] font-black uppercase tracking-[0.3em]">Go Back to Hub</span>
+                           </button>
+                           <div className="flex items-center gap-8">
+                             <div className="w-20 h-20 rounded-[32px] bg-gradient-to-tr from-matcha-900 via-matcha-700 to-matcha-600 border-4 border-white flex items-center justify-center text-white text-3xl font-black italic shadow-2xl shadow-matcha-900/10">
+                               {groups.find(g => g.id === viewingGroupId)?.name[0].toUpperCase()}
+                             </div>
+                             <div>
+                                 <h2 className="text-5xl font-black uppercase italic tracking-tighter leading-none text-zinc-900">
+                                   {groups.find(g => g.id === viewingGroupId)?.name}
+                                 </h2>
+                                 <div className="flex items-center gap-3 mt-3">
+                                   <div className="px-3 py-1 bg-amber-50 border border-amber-200 rounded-full text-[9px] font-black uppercase tracking-widest text-amber-600">
+                                     GROUP ACTIVE
+                                   </div>
+                                   <div className="px-3 py-1 bg-white/50 border border-white/40 rounded-full text-[9px] font-mono font-bold text-matcha-900">
+                                     FREQ: {groups.find(g => g.id === viewingGroupId)?.code}
+                                   </div>
                                 </div>
                             </div>
                           </div>
@@ -2525,7 +2546,7 @@ export default function App() {
 
                         <div className="p-2 bg-white/40 rounded-[24px] sm:rounded-[40px] border border-white/50 backdrop-blur-md flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 sm:gap-2 shadow-sm w-full sm:w-auto">
                            {[
-                             { id: 'tasks', label: 'Missions', icon: LayoutGrid },
+                             { id: 'tasks', label: 'Schedules', icon: LayoutGrid },
                              { id: 'schedule', label: 'Schedule', icon: CalendarIcon },
                              { id: 'members', label: 'Crew', icon: Users },
                            ].map((tab) => (
@@ -2630,7 +2651,7 @@ export default function App() {
                         <div className="space-y-8">
                           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 border-b-2 border-zinc-100 pb-8">
                             <h4 className="text-[14px] font-black uppercase tracking-[0.3em] flex items-center gap-3 italic text-[#1a2e05]">
-                               <LayoutGrid className="w-5 h-5 text-matcha-600" /> Mission List (Tugas)
+                               <LayoutGrid className="w-5 h-5 text-matcha-600" /> Schedule List (Tugas)
                             </h4>
                             {(() => {
                               const group = groups.find(g => g.id === viewingGroupId);
@@ -3074,7 +3095,7 @@ export default function App() {
         } ${
           isNight 
             ? 'bg-zinc-950/20 border-white/10 backdrop-blur-3xl shadow-3d-dark' 
-            : 'bg-white border-white/45 shadow-3d-light'
+            : 'bg-white/45 border-white/50 backdrop-blur-xl shadow-3d-light'
         }`}>
           <button
             onClick={() => {
@@ -3102,7 +3123,7 @@ export default function App() {
             }`}
           >
             <PieChart className={currentTab === 'recap' ? (isNight ? "w-6 h-6 fill-matcha-400 text-matcha-400" : "w-6 h-6 fill-matcha-600 text-matcha-600") : "w-6 h-6"} strokeWidth={currentTab === 'recap' ? 2.5 : 2} />
-            <span className="text-[8px] font-black uppercase tracking-[0.2em]">Recap</span>
+            <span className="text-[8px] font-black uppercase tracking-[0.2em]">Task</span>
           </button>
           <button
             onClick={() => {
@@ -3119,7 +3140,7 @@ export default function App() {
             }`}
           >
             <Users className={currentTab === 'social' ? (isNight ? "w-6 h-6 fill-matcha-400 text-matcha-400" : "w-6 h-6 fill-matcha-600 text-matcha-600") : "w-6 h-6"} strokeWidth={currentTab === 'social' ? 2.5 : 2} />
-            <span className="text-[8px] font-black uppercase tracking-[0.2em]">Social</span>
+            <span className="text-[8px] font-black uppercase tracking-[0.2em]">Group</span>
           </button>
         </nav>
 
@@ -3273,7 +3294,7 @@ export default function App() {
                }`}
              >
                <h2 className="text-3xl sm:text-4xl font-display font-extrabold mb-6 sm:mb-10 tracking-tight uppercase text-center text-matcha-700">
-                 {editingTaskId ? 'Edit Mission' : 'New Mission'}
+                 {editingTaskId ? 'Edit Schedule' : 'New Schedule'}
                </h2>
               <form onSubmit={handleTaskSubmit} className="space-y-6 sm:space-y-10">
                 <div className="space-y-2">
@@ -3400,7 +3421,7 @@ export default function App() {
                   type="submit"
                   className="w-full py-5 rounded-[24px] bg-gradient-to-r from-matcha-600 to-matcha-800 text-white font-display font-black text-lg shadow-xl shadow-matcha-900/20 hover:shadow-matcha-600/30 transform transition-all active:scale-[0.98]"
                 >
-                  {editingTaskId ? 'UPDATE MISSION' : 'INITIALIZE'}
+                  {editingTaskId ? 'UPDATE SCHEDULE' : 'INITIALIZE'}
                 </button>
               </form>
             </motion.div>
@@ -3665,7 +3686,7 @@ export default function App() {
                 onClick={() => setShowFullCalendar(false)}
                 className="w-full py-5 rounded-[24px] bg-zinc-100 font-black text-sm uppercase tracking-widest mt-4 hover:bg-zinc-200 transition-colors"
               >
-                CLOSE MISSION LOG
+                CLOSE SCHEDULE LOG
               </button>
             </motion.div>
           </motion.div>
@@ -3704,7 +3725,7 @@ export default function App() {
                 <div>
                   <div className="flex items-center gap-3 mb-2">
                     <p className="text-[10px] font-display font-black uppercase tracking-[0.35em] text-matcha-700 opacity-90">
-                      {selectedTaskDetails.isSchedule ? 'Jadwal Grup' : 'Detailed Mission'}
+                      {selectedTaskDetails.isSchedule ? 'Jadwal Grup' : 'Detailed Schedule'}
                     </p>
                     {selectedTaskDetails.isSchedule ? (
                       <span className="px-2 py-0.5 rounded-full bg-matcha-600 text-white text-[8px] font-display font-black uppercase tracking-widest">
@@ -3712,11 +3733,11 @@ export default function App() {
                       </span>
                     ) : selectedTaskDetails.ownerUid === user?.uid ? (
                       <span className="px-2 py-0.5 rounded-full bg-matcha-800 text-white text-[8px] font-display font-black uppercase tracking-widest">
-                        Your Mission
+                        Your Schedule
                       </span>
                     ) : (
                       <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-600 text-[8px] font-display font-black uppercase tracking-widest">
-                        Shared Mission
+                        Shared Schedule
                       </span>
                     )}
                   </div>
@@ -3852,7 +3873,7 @@ export default function App() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-display font-bold uppercase tracking-widest">
-                    <span className={`opacity-60 italic font-black ${isNight ? 'text-matcha-300' : 'text-matcha-700'}`}>Mission Logged</span>
+                    <span className={`opacity-60 italic font-black ${isNight ? 'text-matcha-300' : 'text-matcha-700'}`}>Schedule Logged</span>
                     <span className={`${isNight ? 'text-zinc-300' : 'text-zinc-500'} font-mono italic`}>
                       {selectedTaskDetails.createdAt?.toDate ? selectedTaskDetails.createdAt.toDate().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : 'Pending...'}
                     </span>
@@ -3918,7 +3939,7 @@ export default function App() {
                         className="flex-1 py-4 bg-zinc-100 text-zinc-900 rounded-[20px] font-black text-[10px] uppercase tracking-widest hover:bg-zinc-900 hover:text-white transition-all shadow-sm flex items-center justify-center gap-2"
                       >
                         <Edit2 className="w-4 h-4" />
-                        {selectedTaskDetails.isSchedule ? 'Edit Schedule' : 'Edit Mission'}
+                        {selectedTaskDetails.isSchedule ? 'Edit Schedule' : 'Edit Schedule'}
                       </button>
                       {canDeleteTask(selectedTaskDetails) && (
                         <button 
@@ -3937,7 +3958,7 @@ export default function App() {
                           className="flex-1 py-4 bg-rose-50 text-rose-600 rounded-[20px] font-black text-[10px] uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all shadow-sm flex items-center justify-center gap-2"
                         >
                           <Trash2 className="w-4 h-4" />
-                          {selectedTaskDetails.isSchedule ? 'Hapus dari Jadwal' : 'Hapus Mission'}
+                          {selectedTaskDetails.isSchedule ? 'Hapus dari Jadwal' : 'Hapus Schedule'}
                         </button>
                       )}
                     </>
@@ -3975,8 +3996,8 @@ export default function App() {
                     <CalendarIcon className="w-6 h-6" />
                   </div>
                   <div>
-                    <h3 className="text-2xl font-black uppercase tracking-tight italic">Mission Archive</h3>
-                    <p className="text-[10px] font-black opacity-30 mt-1 uppercase tracking-widest">Global Chronological Log ({tasks.length} Missions)</p>
+                    <h3 className="text-2xl font-black uppercase tracking-tight italic">Schedule Archive</h3>
+                    <p className="text-[10px] font-black opacity-30 mt-1 uppercase tracking-widest">Global Chronological Log ({tasks.length} Schedules)</p>
                   </div>
                 </div>
                 <button 

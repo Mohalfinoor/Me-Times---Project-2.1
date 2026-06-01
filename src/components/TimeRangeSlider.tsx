@@ -31,6 +31,127 @@ export const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
   const startMins = timeToMinutes(startTime || "07:00");
   const endMins = timeToMinutes(endTime || "17:00");
 
+  const getCoords = (mins: number) => {
+    const pct = mins / 1440;
+    const totalLength = 840 + Math.PI * 30 + 840; // 1774.2477
+    const dist = pct * totalLength;
+
+    if (dist <= 840) {
+      // Top track: goes right to left
+      const x = 920 - dist;
+      const y = 90;
+      return { x, y };
+    } else if (dist <= 840 + Math.PI * 30) {
+      // Left arc
+      const arcDist = dist - 840;
+      const theta = arcDist / 30; // radius 30
+      const x = 80 - 30 * Math.sin(theta);
+      const y = 120 - 30 * Math.cos(theta);
+      return { x, y };
+    } else {
+      // Bottom track: goes left to right
+      const bottomDist = dist - 840 - Math.PI * 30;
+      const x = 80 + bottomDist;
+      const y = 150;
+      return { x, y };
+    }
+  };
+
+  const getMinsFromCoords = (clientX: number, clientY: number): number => {
+    if (!trackRef.current) return 0;
+    const rect = trackRef.current.getBoundingClientRect();
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+
+    // Map to 1000x240 coordinates
+    const xVal = (px / rect.width) * 1000;
+    const yVal = (py / rect.height) * 240;
+
+    // 1. Top segment
+    const x1 = Math.max(80, Math.min(920, xVal));
+    const y1 = 90;
+    const d1 = (xVal - x1) ** 2 + (yVal - y1) ** 2;
+
+    // 2. Arc segment
+    const dx = xVal - 80;
+    const dy = yVal - 120;
+    let theta = Math.atan2(-dx, -dy);
+    if (theta < 0) {
+      theta = dy < 0 ? 0 : Math.PI;
+    }
+    const x2 = 80 - 30 * Math.sin(theta);
+    const y2 = 120 - 30 * Math.cos(theta);
+    const d2 = (xVal - x2) ** 2 + (yVal - y2) ** 2;
+
+    // 3. Bottom segment
+    const x3 = Math.max(80, Math.min(920, xVal));
+    const y3 = 150;
+    const d3 = (xVal - x3) ** 2 + (yVal - y3) ** 2;
+
+    let dist = 0;
+    if (d1 <= d2 && d1 <= d3) {
+      dist = 920 - x1;
+    } else if (d2 <= d1 && d2 <= d3) {
+      dist = 840 + theta * 30;
+    } else {
+      dist = 840 + Math.PI * 30 + (x3 - 80);
+    }
+
+    const totalLength = 840 + Math.PI * 30 + 840;
+    let mins = (dist / totalLength) * 1440;
+    mins = Math.round(mins / 5) * 5;
+    return Math.max(0, Math.min(1440, mins));
+  };
+
+  const handlePointerDown = (handle: 'start' | 'end', e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch (err) {
+      // ignore
+    }
+    setActiveHandle(handle);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!activeHandle) return;
+    let mins = getMinsFromCoords(e.clientX, e.clientY);
+
+    if (activeHandle === 'start') {
+      if (mins >= endMins) {
+        mins = endMins - 5;
+      }
+      onChange(minutesToTime(mins), minutesToTime(endMins));
+    } else {
+      if (mins <= startMins) {
+        mins = startMins + 5;
+      }
+      onChange(minutesToTime(startMins), minutesToTime(mins));
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!activeHandle) return;
+    try {
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch (err) {
+      // ignore
+    }
+    setActiveHandle(null);
+  };
+
+  // Convert minutes into percentages of the slider width
+  const startCoords = getCoords(startMins);
+  const endCoords = getCoords(endMins);
+
+  const totalLength = 840 + Math.PI * 30 + 840;
+  const startDist = (startMins / 1440) * totalLength;
+  const endDist = (endMins / 1440) * totalLength;
+
+  const midX = (startCoords.x + endCoords.x) / 2;
+  const midY = (startCoords.y + endCoords.y) / 2;
+
   const handleStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     if (!val) return;
@@ -55,71 +176,8 @@ export const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
     }
   };
 
-  const handlePointerDown = (handle: 'start' | 'end', e: React.PointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    } catch (err) {
-      // Ignore pointer capture errors if unsupported
-    }
-    setActiveHandle(handle);
-  };
-
-  const updateTimeFromPointer = useCallback((clientX: number, targetHandle: 'start' | 'end') => {
-    if (!trackRef.current) return;
-
-    const rect = trackRef.current.getBoundingClientRect();
-    const width = rect.width || 1; // avoid division by zero
-    const x = clientX - rect.left;
-    
-    // Convert click/drag position to percentage, clamp 0 to 1
-    let pct = Math.max(0, Math.min(1, x / width));
-    
-    // Minutes from 0 to 1440
-    let mins = pct * 1440;
-    
-    // Step size of 5 minutes
-    const step = 5;
-    mins = Math.round(mins / step) * step;
-    mins = Math.max(0, Math.min(1440, mins));
-
-    if (targetHandle === 'start') {
-      // Allow start to go up to endMins - 5
-      if (mins >= endMins) {
-        mins = endMins - 5;
-      }
-      onChange(minutesToTime(mins), minutesToTime(endMins));
-    } else {
-      // Allow end to go down to startMins + 5
-      if (mins <= startMins) {
-        mins = startMins + 5;
-      }
-      onChange(minutesToTime(startMins), minutesToTime(mins));
-    }
-  }, [startMins, endMins, onChange]);
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!activeHandle) return;
-    updateTimeFromPointer(e.clientX, activeHandle);
-  };
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (!activeHandle) return;
-    try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch (err) {
-      // Ignore
-    }
-    setActiveHandle(null);
-  };
-
-  // Convert minutes into percentages of the slider width
-  const startPct = (startMins / 1440) * 100;
-  const endPct = (endMins / 1440) * 100;
-
   return (
-    <div id="time-range-slider-container" className="w-full py-1 select-none">
+    <div id="time-range-slider-container" className="w-full py-2 select-none">
       {/* Visual Display for Interval */}
       <div className={`flex justify-between items-center mb-6 border p-2 sm:p-4 rounded-2xl sm:rounded-3xl gap-1.5 sm:gap-2.5 transition-colors duration-300 ${
         isNight 
@@ -160,107 +218,107 @@ export const TimeRangeSlider: React.FC<TimeRangeSliderProps> = ({
       </div>
 
       {/* Slider Track and Handles */}
-      <div className="relative pt-8 pb-3 px-4">
-        <div 
-          ref={trackRef}
-          className={`h-3 w-full rounded-full cursor-pointer relative touch-none ${
-            isNight ? 'bg-white/10' : 'bg-zinc-100'
-          }`}
-          onClick={(e) => {
-            // Click to snap nearest handle
-            if (!trackRef.current) return;
-            const rect = trackRef.current.getBoundingClientRect();
-            const clickX = e.clientX - rect.left;
-            const clickPct = clickX / rect.width;
-            const clickMins = Math.round((clickPct * 1440) / 5) * 5;
-            
-            const distToStart = Math.abs(clickMins - startMins);
-            const distToEnd = Math.abs(clickMins - endMins);
-            
-            if (distToStart < distToEnd) {
-              const newStart = Math.max(0, Math.min(endMins - 5, clickMins));
-              onChange(minutesToTime(newStart), minutesToTime(endMins));
-            } else {
-              const newEnd = Math.max(startMins + 5, Math.min(1440, clickMins));
-              onChange(minutesToTime(startMins), minutesToTime(newEnd));
-            }
-          }}
+      <div 
+        ref={trackRef}
+        className={`relative w-full aspect-[1000/240] rounded-[48px] border-2 overflow-visible select-none cursor-pointer p-0 transition-colors duration-300 ${
+          isNight 
+            ? 'bg-zinc-900/40 border-white/10' 
+            : 'bg-zinc-200/50 border-zinc-300/40' // Soft light grey frame exactly matching the screenshot vibe
+        }`}
+        style={{ touchAction: 'none' }}
+        onClick={(e) => {
+          if (!trackRef.current) return;
+          const clickMins = getMinsFromCoords(e.clientX, e.clientY);
+          
+          const distToStart = Math.abs(clickMins - startMins);
+          const distToEnd = Math.abs(clickMins - endMins);
+          
+          if (distToStart < distToEnd) {
+            const newStart = Math.max(0, Math.min(endMins - 5, clickMins));
+            onChange(minutesToTime(newStart), minutesToTime(endMins));
+          } else {
+            const newEnd = Math.max(startMins + 5, Math.min(1440, clickMins));
+            onChange(minutesToTime(startMins), minutesToTime(newEnd));
+          }
+        }}
+      >
+        <svg 
+          viewBox="0 0 1000 240" 
+          className="absolute inset-0 w-full h-full p-0 m-0 overflow-visible pointer-events-none select-none"
         >
-          {/* Active Highlight Range */}
-          <div 
-            className={`absolute h-full rounded-full transition-all duration-75 ${
-              isNight ? 'bg-white' : 'bg-zinc-900'
-            }`}
-            style={{ 
-              left: `${startPct}%`, 
-              right: `${100 - endPct}%` 
-            }}
+          {/* Top labels */}
+          <text x="920" y="44" textAnchor="middle" className={`font-mono font-black text-[24px] uppercase tracking-wider ${isNight ? 'fill-zinc-500' : 'fill-zinc-450 text-[#8e9095]'}`}>00:00</text>
+          <text x="500" y="44" textAnchor="middle" className={`font-mono font-black text-[24px] uppercase tracking-wider ${isNight ? 'fill-zinc-500' : 'fill-zinc-450 text-[#8e9095]'}`}>06:00</text>
+          <text x="80" y="44" textAnchor="middle" className={`font-mono font-black text-[24px] uppercase tracking-wider ${isNight ? 'fill-zinc-500' : 'fill-zinc-450 text-[#8e9095]'}`}>12:00</text>
+          
+          {/* Bottom labels */}
+          <text x="80" y="206" textAnchor="middle" className={`font-mono font-black text-[24px] uppercase tracking-wider ${isNight ? 'fill-zinc-500' : 'fill-zinc-450 text-[#8e9095]'}`}>12:00</text>
+          <text x="500" y="206" textAnchor="middle" className={`font-mono font-black text-[24px] uppercase tracking-wider ${isNight ? 'fill-zinc-500' : 'fill-zinc-450 text-[#8e9095]'}`}>18:00</text>
+          <text x="920" y="206" textAnchor="middle" className={`font-mono font-black text-[24px] uppercase tracking-wider ${isNight ? 'fill-zinc-500' : 'fill-zinc-450 text-[#8e9095]'}`}>24:00</text>
+
+          {/* Semicircular Hairpin / Loop Track */}
+          <path 
+            d="M 920,90 L 80,90 A 30 30 0 0 0 80 150 L 920,150" 
+            fill="none" 
+            stroke={isNight ? '#3f3f46' : '#ffffff'} 
+            strokeWidth="24" 
+            strokeLinecap="round" 
+            className="transition-colors duration-300"
           />
 
-          {/* Left Thumb/Handle for Start Time */}
-          <div
-            className={`absolute top-1/2 -translate-y-1/2 w-8 h-8 rounded-full shadow-lg cursor-grab active:cursor-grabbing z-10 flex items-center justify-center -ml-4 hover:scale-110 active:scale-95 transition-all outline-none border-[3px] ${
-              isNight 
-                ? 'bg-zinc-950 border-white text-white' 
-                : 'bg-white border-zinc-900 text-zinc-900'
-            }`}
-            style={{ left: `${startPct}%` }}
-            onPointerDown={(e) => handlePointerDown('start', e)}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-          >
-            {/* Soft inner core */}
-            <div className={`w-2 h-2 rounded-full transition-all ${
-              activeHandle === 'start' 
-                ? isNight ? 'bg-white scale-125' : 'bg-zinc-900 scale-125' 
-                : isNight ? 'bg-zinc-600' : 'bg-zinc-300'
-            }`} />
-            
-            {/* Tooltip above */}
-            <div className={`absolute bottom-9 left-1/2 -translate-x-1/2 px-2 py-0.5 font-mono font-black text-[10px] rounded-lg shadow-md pointer-events-none whitespace-nowrap ${
-              isNight ? 'bg-white text-zinc-950' : 'bg-zinc-900 text-white'
-            }`}>
-              {startTime}
-            </div>
-          </div>
+          {/* Active Highlight Range of Path */}
+          <path 
+            d="M 920,90 L 80,90 A 30 30 0 0 0 80 150 L 920,150" 
+            fill="none" 
+            stroke={isNight ? '#ffffff' : '#18181b'} 
+            strokeWidth="24" 
+            strokeLinecap="round" 
+            strokeDasharray={`${endDist - startDist} ${totalLength}`}
+            strokeDashoffset={-startDist}
+            className="transition-all duration-75"
+          />
+        </svg>
 
-          {/* Right Thumb/Handle for End Time */}
-          <div
-            className={`absolute top-1/2 -translate-y-1/2 w-8 h-8 rounded-full shadow-lg cursor-grab active:cursor-grabbing z-10 flex items-center justify-center -ml-4 hover:scale-110 active:scale-95 transition-all outline-none border-[3px] ${
-              isNight 
-                ? 'bg-zinc-950 border-white text-white' 
-                : 'bg-white border-zinc-900 text-zinc-900'
-            }`}
-            style={{ left: `${endPct}%` }}
-            onPointerDown={(e) => handlePointerDown('end', e)}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-          >
-            {/* Soft inner core */}
-            <div className={`w-2 h-2 rounded-full transition-all ${
-              activeHandle === 'end' 
-                ? isNight ? 'bg-white scale-125' : 'bg-zinc-900 scale-125' 
-                : isNight ? 'bg-zinc-600' : 'bg-zinc-300'
-            }`} />
-            
-            {/* Tooltip above */}
-            <div className={`absolute bottom-9 left-1/2 -translate-x-1/2 px-2 py-0.5 font-mono font-black text-[10px] rounded-lg shadow-md pointer-events-none whitespace-nowrap ${
-              isNight ? 'bg-white text-zinc-950' : 'bg-zinc-900 text-white'
-            }`}>
-              {endTime}
-            </div>
-          </div>
+        {/* Start Handle */}
+        <div 
+          className="absolute w-10 h-10 -ml-5 -mt-5 rounded-full bg-white border-[4px] border-zinc-900 shadow-md flex items-center justify-center cursor-grab active:cursor-grabbing hover:scale-105 transition-all duration-75 select-none touch-none"
+          style={{ 
+            left: `${startCoords.x / 10}%`, 
+            top: `${startCoords.y / 2.4}%`,
+            zIndex: activeHandle === 'start' ? 30 : 10
+          }}
+          onPointerDown={(e) => handlePointerDown('start', e)}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+        >
+          <div className="w-2.5 h-2.5 rounded-full bg-zinc-300" />
         </div>
 
-        {/* Time tick markers below */}
-        <div className={`flex justify-between text-[9px] font-mono font-black mt-4 px-1 pointer-events-none select-none ${
-          isNight ? 'text-zinc-500' : 'text-zinc-400'
-        }`}>
-          <span>00:00</span>
-          <span>06:00</span>
-          <span>12:00</span>
-          <span>18:00</span>
-          <span>24:00</span>
+        {/* End Handle */}
+        <div 
+          className="absolute w-10 h-10 -ml-5 -mt-5 rounded-full bg-white border-[4px] border-zinc-900 shadow-md flex items-center justify-center cursor-grab active:cursor-grabbing hover:scale-105 transition-all duration-75 select-none touch-none"
+          style={{ 
+            left: `${endCoords.x / 10}%`, 
+            top: `${endCoords.y / 2.4}%`,
+            zIndex: activeHandle === 'end' ? 30 : 10
+          }}
+          onPointerDown={(e) => handlePointerDown('end', e)}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+        >
+          <div className="w-2.5 h-2.5 rounded-full bg-zinc-300" />
+        </div>
+
+        {/* Unified Capsule Tooltip sitting elegantly over current coordinates */}
+        <div 
+          className="absolute px-4 py-2 bg-[#18181b] text-white font-mono font-black text-xs sm:text-[13px] rounded-full shadow-2xl pointer-events-none select-none transition-all duration-75 -translate-x-1/2"
+          style={{ 
+            left: `${midX / 10}%`, 
+            top: `${midY / 2.4}%`,
+            transform: 'translate(-50%, -46px)'
+          }}
+        >
+          {startTime} - {endTime}
         </div>
       </div>
     </div>

@@ -31,6 +31,11 @@ service cloud.firestore {
       return isSignedIn() && groupId != null && groupId != '' && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.get('members', []);
     }
 
+    function isUserInGroup(groupId) {
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && groupId != null && groupId != '' && exists(userPath) && groupId in get(userPath).data.get('groupIds', []);
+    }
+
     function isGroupAdmin(groupId) {
       let groupData = get(/databases/$(database)/documents/groups/$(groupId)).data;
       return isSignedIn() && groupId != null && groupId != '' && (
@@ -157,12 +162,12 @@ service cloud.firestore {
       allow list: if isSignedIn() && (
         resource.data.ownerUid == request.auth.uid || 
         request.auth.uid in resource.data.get('collaborators', []) ||
-        (resource.data.get('groupId', '') != '' && isGroupMember(resource.data.groupId))
+        (resource.data.get('groupId', '') != '' && isUserInGroup(resource.data.groupId))
       );
       allow get: if isSignedIn() && (
         resource.data.ownerUid == request.auth.uid || 
         request.auth.uid in resource.data.get('collaborators', []) ||
-        (resource.data.get('groupId', '') != '' && isGroupMember(resource.data.groupId))
+        (resource.data.get('groupId', '') != '' && (isUserInGroup(resource.data.groupId) || isGroupMember(resource.data.groupId)))
       );
       allow create: if isSignedIn() && isValidTask(incoming(), true) && isValidId(taskId) && (
         incoming().get('groupId', '') == '' || isGroupMember(incoming().groupId)
