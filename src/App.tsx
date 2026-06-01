@@ -170,6 +170,25 @@ const describeArc = (x: number, y: number, radius: number, startAngle: number, e
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [syncedUserGroupIds, setSyncedUserGroupIds] = useState<string[]>([]);
+
+  // Listen to the user's document in Firestore to stay 100% in sync with their userProfile 'groupIds'
+  useEffect(() => {
+    if (!user) {
+      setSyncedUserGroupIds([]);
+      return;
+    }
+    const userRef = doc(db, 'users', user.uid);
+    const unsubscribe = onSnapshot(userRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const userData = snapshot.data();
+        setSyncedUserGroupIds(userData.groupIds || []);
+      }
+    }, (error) => {
+      console.warn("User document license check failed:", error);
+    });
+    return () => unsubscribe();
+  }, [user]);
 
   // Initial Boot
   useEffect(() => {
@@ -333,42 +352,41 @@ export default function App() {
 
   // Sync groupIds to User document for high-performance rules
   useEffect(() => {
-    if (!user || groups.length === 0) {
-      if (user) {
-        // If user is logged in but has no groups in state, we should still ensure groupIds exists (even if empty)
-        const checkEmptyGroups = async () => {
-          const userRef = doc(db, 'users', user.uid);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists() && !userSnap.data().groupIds) {
-            await updateDoc(userRef, { groupIds: [] }).catch(() => {});
-          }
-        };
-        checkEmptyGroups();
-      }
-      return;
-    }
+    if (!user) return;
     
     const syncUserGroups = async () => {
       const userRef = doc(db, 'users', user.uid);
-      const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
+      const userSnap = await getDoc(userRef).catch(() => null);
+      const currentGroupIds = groups.map(g => g.id);
+      
+      let needsUpdate = true;
+      if (userSnap && userSnap.exists()) {
         const userData = userSnap.data();
         const currentGroupsInDoc = userData.groupIds || [];
-        const currentGroupIds = groups.map(g => g.id);
         
-        // If out of sync, update
         const sortedDoc = [...currentGroupsInDoc].sort().join(',');
         const sortedState = [...currentGroupIds].sort().join(',');
         
-        if (sortedDoc !== sortedState) {
-          try {
-            await updateDoc(userRef, { groupIds: currentGroupIds });
-          } catch (e) {
-            console.error("Failed to sync groupIds to user profile", e);
-          }
+        if (sortedDoc === sortedState) {
+          needsUpdate = false;
+        }
+      }
+      
+      if (needsUpdate) {
+        try {
+          await setDoc(userRef, {
+            groupIds: currentGroupIds,
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+          }, { merge: true });
+        } catch (e) {
+          console.error("Failed to sync groupIds to user profile", e);
         }
       }
     };
+    
     syncUserGroups();
   }, [user, groups]);
 
@@ -497,17 +515,38 @@ export default function App() {
       setCollabTasks(s.docs.map(doc => ({ ...doc.data() as Task, id: doc.id })));
     }, (e) => handleFirestoreError(e, OperationType.LIST, 'tasks-collab')));
 
-    // Query 3: Tasks matching user's groups
-    if (groups.length > 0) {
-      const groupIds = Array.from(new Set(groups.map(g => g.id))).slice(0, 30);
-      const q3 = query(collection(db, 'tasks'), where('groupId', 'in', groupIds));
-      unsubs.push(onSnapshot(q3, (s) => {
-        setGroupTasksState(s.docs.map(doc => ({ ...doc.data() as Task, id: doc.id })));
-      }, (e) => handleFirestoreError(e, OperationType.LIST, 'tasks-group')));
+    // Query 3: Tasks matching user's groups (querying per group to satisfy Firestore list security rules statically)
+    // We only subscribe to groups that have fully synced down to the user's groupIds array in Firestore.
+    const verifiedGroups = groups.filter(g => syncedUserGroupIds.includes(g.id));
+    if (verifiedGroups.length > 0) {
+      const groupTasksMap = new Map<string, Task[]>();
+      verifiedGroups.forEach(group => {
+        const qG = query(collection(db, 'tasks'), where('groupId', '==', group.id));
+        const unsubG = onSnapshot(qG, (s) => {
+          const tasksForGroup = s.docs.map(doc => ({ ...doc.data() as Task, id: doc.id }));
+          groupTasksMap.set(group.id, tasksForGroup);
+          
+          // Flatten all group tasks and update state
+          const allGroupTasks: Task[] = [];
+          groupTasksMap.forEach(tasksList => {
+            allGroupTasks.push(...tasksList);
+          });
+          
+          // Remove potential duplicates
+          const uniqueGroupTasks = Array.from(
+            new Map(allGroupTasks.map(task => [task.id, task])).values()
+          );
+          setGroupTasksState(uniqueGroupTasks);
+        }, (e) => {
+          console.error(`Error loading group tasks for group ${group.id}:`, e);
+          // Let's pass the error to handleFirestoreError if they don't have access or similar (but handled gracefully)
+        });
+        unsubs.push(unsubG);
+      });
     }
 
     return () => unsubs.forEach(unsub => unsub());
-  }, [user, groups]);
+  }, [user, groups, syncedUserGroupIds]);
 
   const isNight = false;
   // Auto-detect clock night mode: 18:00 to 06:00
